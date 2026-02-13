@@ -23,7 +23,7 @@ public class TrayApplicationContext : ApplicationContext
             TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices),
             InactivityTimeoutSeconds = _config.InactivityTimeoutSeconds
         };
-        _monitor.InactivityDetected += OnInactivityDetected;
+        _monitor.ScreenInactivityDetected += OnScreenInactivityDetected;
         _monitor.ActivityDetected += OnActivityDetected;
 
         // --- Tray icon ---
@@ -62,9 +62,9 @@ public class TrayApplicationContext : ApplicationContext
         return menu;
     }
 
-    private void OnInactivityDetected(IReadOnlyList<Screen> targetScreens)
+    private void OnScreenInactivityDetected(int screenIndex)
     {
-        ShowOverlays(targetScreens);
+        ShowOverlayForScreen(screenIndex);
     }
 
     private void OnActivityDetected(int screenIndex)
@@ -77,21 +77,33 @@ public class TrayApplicationContext : ApplicationContext
     /// </summary>
     private readonly Dictionary<int, OverlayWindow> _screenOverlayMap = new();
 
+    /// <summary>
+    /// Shows an overlay on a single screen by index.
+    /// </summary>
+    private void ShowOverlayForScreen(int screenIndex)
+    {
+        if (_screenOverlayMap.ContainsKey(screenIndex))
+            return; // already showing
+
+        Screen? screen = ScreenManager.GetScreen(screenIndex);
+        if (screen == null) return;
+
+        var overlay = new OverlayWindow();
+        overlay.ShowOnScreen(screen);
+        _overlays.Add(overlay);
+        _screenOverlayMap[screenIndex] = overlay;
+    }
+
+    /// <summary>
+    /// Shows overlays on all given screens (used by "Black Out Now").
+    /// </summary>
     private void ShowOverlays(IReadOnlyList<Screen> screens)
     {
-        // Ensure we have enough overlay windows
-        while (_overlays.Count < screens.Count)
-            _overlays.Add(new OverlayWindow());
-
-        _screenOverlayMap.Clear();
-        for (int i = 0; i < screens.Count; i++)
+        foreach (Screen s in screens)
         {
-            _overlays[i].ShowOnScreen(screens[i]);
-
-            // Find the screen index for this Screen object
-            int idx = Array.IndexOf(Screen.AllScreens, screens[i]);
+            int idx = Array.IndexOf(Screen.AllScreens, s);
             if (idx >= 0)
-                _screenOverlayMap[idx] = _overlays[i];
+                ShowOverlayForScreen(idx);
         }
     }
 
@@ -100,6 +112,9 @@ public class TrayApplicationContext : ApplicationContext
         if (_screenOverlayMap.TryGetValue(screenIndex, out var overlay))
         {
             overlay.HideOverlay();
+            overlay.Close();
+            overlay.Dispose();
+            _overlays.Remove(overlay);
             _screenOverlayMap.Remove(screenIndex);
         }
     }
@@ -107,7 +122,12 @@ public class TrayApplicationContext : ApplicationContext
     private void HideAllOverlays()
     {
         foreach (var overlay in _overlays)
+        {
             overlay.HideOverlay();
+            overlay.Close();
+            overlay.Dispose();
+        }
+        _overlays.Clear();
         _screenOverlayMap.Clear();
     }
 
@@ -169,12 +189,6 @@ public class TrayApplicationContext : ApplicationContext
         _monitor.Stop();
         _monitor.Dispose();
         HideAllOverlays();
-        foreach (var overlay in _overlays)
-        {
-            overlay.Close();
-            overlay.Dispose();
-        }
-        _overlays.Clear();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;

@@ -2,14 +2,22 @@ namespace BlackScreenSaver;
 
 /// <summary>
 /// Monitors the cursor position at regular intervals and raises events
-/// when the cursor has been away from all target screens for the configured timeout,
-/// or when the cursor returns to any target screen.
+/// when the cursor has been away from each target screen for the configured timeout,
+/// or when the cursor returns to a target screen.
+/// Each target screen is tracked independently.
 /// </summary>
 public class CursorMonitor : IDisposable
 {
     private readonly System.Windows.Forms.Timer _timer;
-    private DateTime _lastSeenOnTargetScreen;
-    private bool _overlayActive;
+
+    /// <summary>
+    /// Per-screen timestamp of when the cursor was last seen on that screen.
+    /// </summary>
+    private readonly Dictionary<int, DateTime> _lastSeenOnScreen = new();
+
+    /// <summary>
+    /// Screens that currently have an active overlay.
+    /// </summary>
     private readonly HashSet<int> _activeOverlayScreens = new();
 
     /// <summary>
@@ -23,22 +31,19 @@ public class CursorMonitor : IDisposable
     public int InactivityTimeoutSeconds { get; set; }
 
     /// <summary>
-    /// Fired when the cursor has been away from all target screens for the configured timeout.
-    /// The argument is the list of target Screen objects.
+    /// Fired when the cursor has been away from a specific target screen
+    /// for the configured timeout. The argument is the screen index.
     /// </summary>
-    public event Action<IReadOnlyList<Screen>>? InactivityDetected;
+    public event Action<int>? ScreenInactivityDetected;
 
     /// <summary>
-    /// Fired when the cursor returns to a specific target screen while the overlay is active.
-    /// The argument is the screen index where the cursor entered.
+    /// Fired when the cursor returns to a specific target screen while
+    /// the overlay is active on it. The argument is the screen index.
     /// </summary>
     public event Action<int>? ActivityDetected;
 
     public CursorMonitor()
     {
-        _lastSeenOnTargetScreen = DateTime.UtcNow;
-        _overlayActive = false;
-
         _timer = new System.Windows.Forms.Timer
         {
             Interval = 300 // check every 300ms
@@ -51,9 +56,14 @@ public class CursorMonitor : IDisposable
     /// </summary>
     public void Start()
     {
-        _lastSeenOnTargetScreen = DateTime.UtcNow;
-        _overlayActive = false;
         _activeOverlayScreens.Clear();
+        _lastSeenOnScreen.Clear();
+
+        // Initialize all target screens with "just seen now"
+        DateTime now = DateTime.UtcNow;
+        foreach (int idx in TargetScreenIndices)
+            _lastSeenOnScreen[idx] = now;
+
         _timer.Start();
     }
 
@@ -68,38 +78,38 @@ public class CursorMonitor : IDisposable
     private void OnTimerTick(object? sender, EventArgs e)
     {
         int currentScreenIndex = ScreenManager.GetCurrentCursorScreenIndex();
-        bool cursorOnTarget = TargetScreenIndices.Contains(currentScreenIndex);
+        DateTime now = DateTime.UtcNow;
 
-        if (cursorOnTarget)
+        foreach (int idx in TargetScreenIndices)
         {
-            // Cursor is on one of the target screens — reset timer
-            _lastSeenOnTargetScreen = DateTime.UtcNow;
+            bool cursorIsHere = (idx == currentScreenIndex);
 
-            if (_overlayActive)
+            if (cursorIsHere)
             {
-                // Remove overlay only from the screen the cursor entered
-                ActivityDetected?.Invoke(currentScreenIndex);
-                _activeOverlayScreens.Remove(currentScreenIndex);
+                // Cursor is on this target screen — reset its timer
+                _lastSeenOnScreen[idx] = now;
 
-                // Reset overlay state when all screen overlays have been dismissed
-                if (_activeOverlayScreens.Count == 0)
-                    _overlayActive = false;
-            }
-        }
-        else
-        {
-            // Cursor is NOT on any target screen
-            if (!_overlayActive)
-            {
-                double elapsed = (DateTime.UtcNow - _lastSeenOnTargetScreen).TotalSeconds;
-                if (elapsed >= InactivityTimeoutSeconds)
+                if (_activeOverlayScreens.Contains(idx))
                 {
-                    _overlayActive = true;
-                    _activeOverlayScreens.Clear();
-                    foreach (int idx in TargetScreenIndices)
+                    // Dismiss overlay for this screen
+                    ActivityDetected?.Invoke(idx);
+                    _activeOverlayScreens.Remove(idx);
+                }
+            }
+            else
+            {
+                // Cursor is NOT on this target screen
+                if (!_activeOverlayScreens.Contains(idx))
+                {
+                    if (!_lastSeenOnScreen.ContainsKey(idx))
+                        _lastSeenOnScreen[idx] = now;
+
+                    double elapsed = (now - _lastSeenOnScreen[idx]).TotalSeconds;
+                    if (elapsed >= InactivityTimeoutSeconds)
+                    {
                         _activeOverlayScreens.Add(idx);
-                    List<Screen> targetScreens = ScreenManager.GetScreens(TargetScreenIndices);
-                    InactivityDetected?.Invoke(targetScreens);
+                        ScreenInactivityDetected?.Invoke(idx);
+                    }
                 }
             }
         }
