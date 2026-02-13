@@ -80,6 +80,11 @@ public class CursorMonitor : IDisposable
         int currentScreenIndex = ScreenManager.GetCurrentCursorScreenIndex();
         DateTime now = DateTime.UtcNow;
 
+        // During transient display reconfiguration, cursor position may not map
+        // to any screen. Skip this tick so we don't accidentally trigger overlays.
+        if (currentScreenIndex < 0)
+            return;
+
         foreach (int idx in TargetScreenIndices)
         {
             bool cursorIsHere = (idx == currentScreenIndex);

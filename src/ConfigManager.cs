@@ -46,6 +46,13 @@ public static class ConfigManager
                 int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
                 config.TargetScreenIndices.Remove(primaryIdx);
 
+                // If this leaves no target screens (for example, single-monitor setups),
+                // fall back to the primary screen so the app remains functional.
+                if (config.TargetScreenIndices.Count == 0)
+                {
+                    config.TargetScreenIndices.Add(primaryIdx);
+                }
+
                 return config;
             }
         }
