@@ -69,4 +69,4 @@ MIT
 
 ## Credits
 
-Vibe-coded by AVatorL using VS Code and GitHub Copilot.
+Vibe-coded using VS Code and GitHub Copilot.
