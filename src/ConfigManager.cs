@@ -27,7 +27,26 @@ public static class ConfigManager
             if (File.Exists(ConfigFile))
             {
                 string json = File.ReadAllText(ConfigFile);
-                return JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+                var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+
+                // Migrate legacy single-index property
+                if (config.TargetScreenIndex.HasValue)
+                {
+                    if (config.TargetScreenIndices == null || config.TargetScreenIndices.Count == 0)
+                    {
+                        config.TargetScreenIndices = new List<int> { config.TargetScreenIndex.Value };
+                    }
+                    config.TargetScreenIndex = null;
+                    Save(config); // persist migration
+                }
+
+                config.TargetScreenIndices ??= new List<int> { 1 };
+
+                // Strip out the primary screen index — it must never be blacked out
+                int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
+                config.TargetScreenIndices.Remove(primaryIdx);
+
+                return config;
             }
         }
         catch
