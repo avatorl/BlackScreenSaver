@@ -215,7 +215,13 @@ public class TrayApplicationContext : ApplicationContext
             {
                 using Stream? stream = assembly.GetManifestResourceStream(resourceName);
                 if (stream != null)
-                    return new Icon(stream);
+                {
+                    // Request the exact size the system tray needs (typically 16x16)
+                    // so Windows doesn't have to rescale on-the-fly, which caused
+                    // flickering/blinking in the tray overflow area (issue #5).
+                    var traySize = SystemInformation.SmallIconSize;
+                    return new Icon(stream, traySize);
+                }
             }
         }
         catch
@@ -239,6 +245,19 @@ public class TrayApplicationContext : ApplicationContext
             g.DrawRectangle(Pens.DarkGray, 0, 0, 15, 15);
         }
         IntPtr hIcon = bmp.GetHicon();
-        return Icon.FromHandle(hIcon);
+        try
+        {
+            // Clone the icon so it owns its own copy of the data,
+            // independent of the unmanaged handle.
+            using var temp = Icon.FromHandle(hIcon);
+            return (Icon)temp.Clone();
+        }
+        finally
+        {
+            DestroyIcon(hIcon);
+        }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
 }
