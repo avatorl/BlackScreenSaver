@@ -66,3 +66,7 @@ blackscreensaver/
 ## License
 
 MIT
+
+## Credits
+
+Vibe-coded by AVatorL using VS Code and GitHub Copilot.
