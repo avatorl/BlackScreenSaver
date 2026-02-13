@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Runtime.InteropServices;
 
 namespace BlackScreenSaver;
 
@@ -7,6 +8,20 @@ namespace BlackScreenSaver;
 /// </summary>
 public static class ScreenManager
 {
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
     /// <summary>
     /// Returns a user-friendly name for each screen, e.g. "Screen 1 (Primary) – 1920×1080".
     /// </summary>
@@ -117,5 +132,47 @@ public static class ScreenManager
         {
             // Silently fail on registry errors
         }
+    }
+
+    /// <summary>
+    /// Checks if the given screen is currently occupied by a fullscreen window (e.g., video, game, slideshow).
+    /// Returns true if a fullscreen app is detected on this screen.
+    /// </summary>
+    public static bool IsScreenFullscreenOccupied(int screenIndex)
+    {
+        try
+        {
+            Screen[] screens = Screen.AllScreens;
+            if (screenIndex < 0 || screenIndex >= screens.Length)
+                return false;
+
+            Screen screen = screens[screenIndex];
+            IntPtr fgWindow = GetForegroundWindow();
+
+            if (fgWindow == IntPtr.Zero)
+                return false;
+
+            if (GetWindowRect(fgWindow, out RECT rect))
+            {
+                // Check if the window bounds match (or nearly match) the screen bounds
+                // allowing a small tolerance for window decorations
+                Rectangle screenBounds = screen.Bounds;
+                int tolerance = 5; // pixels
+
+                bool matchesWidth = Math.Abs(rect.Right - rect.Left - screenBounds.Width) <= tolerance;
+                bool matchesHeight = Math.Abs(rect.Bottom - rect.Top - screenBounds.Height) <= tolerance;
+                bool matchesPosition = Math.Abs(rect.Left - screenBounds.Left) <= tolerance &&
+                                      Math.Abs(rect.Top - screenBounds.Top) <= tolerance;
+
+                if (matchesWidth && matchesHeight && matchesPosition)
+                    return true;
+            }
+        }
+        catch
+        {
+            // Silently fail on fullscreen detection errors
+        }
+
+        return false;
     }
 }
