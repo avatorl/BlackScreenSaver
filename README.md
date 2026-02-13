@@ -17,10 +17,15 @@ Not a regular Windows screensaver — this is a custom tray app designed for mul
 - **Single instance** — prevents duplicate processes
 - **Handles display changes** — adapts when monitors are connected/disconnected
 
+## Download
+
+**[Download BlackScreenSaver.exe](https://github.com/avatorl/BlackScreenSaver/releases/latest/download/BlackScreenSaver.exe)** — self-contained single-file executable, no .NET runtime needed.
+
 ## Requirements
 
 - Windows 10/11
-- [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (or build as self-contained)
+- No additional dependencies (the download above is self-contained)
+- If building from source: [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 
 ## Build
 
