@@ -61,6 +61,36 @@ public static class ScreenManager
     }
 
     /// <summary>
+    /// Returns the 0-based index of the primary screen (where the system tray lives).
+    /// Returns 0 if no primary screen is found.
+    /// </summary>
+    public static int GetPrimaryScreenIndex()
+    {
+        Screen[] screens = Screen.AllScreens;
+        for (int i = 0; i < screens.Length; i++)
+        {
+            if (screens[i].Primary)
+                return i;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Returns a list of screens for the given indices (skipping invalid ones).
+    /// </summary>
+    public static List<Screen> GetScreens(IEnumerable<int> indices)
+    {
+        Screen[] screens = Screen.AllScreens;
+        var result = new List<Screen>();
+        foreach (int i in indices)
+        {
+            if (i >= 0 && i < screens.Length)
+                result.Add(screens[i]);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Sets or removes the "Start with Windows" registry entry.
     /// </summary>
     public static void SetStartWithWindows(bool enable)

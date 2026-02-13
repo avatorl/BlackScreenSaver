@@ -4,12 +4,12 @@ namespace BlackScreenSaver;
 
 /// <summary>
 /// The core application context that manages the tray icon, cursor monitor,
-/// overlay window, and settings interaction.
+/// overlay windows, and settings interaction.
 /// </summary>
 public class TrayApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _trayIcon;
-    private readonly OverlayWindow _overlay;
+    private readonly List<OverlayWindow> _overlays = new();
     private readonly CursorMonitor _monitor;
     private AppConfig _config;
 
@@ -17,13 +17,10 @@ public class TrayApplicationContext : ApplicationContext
     {
         _config = ConfigManager.Load();
 
-        // --- Overlay window ---
-        _overlay = new OverlayWindow();
-
         // --- Cursor monitor ---
         _monitor = new CursorMonitor
         {
-            TargetScreenIndex = _config.TargetScreenIndex,
+            TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices),
             InactivityTimeoutSeconds = _config.InactivityTimeoutSeconds
         };
         _monitor.InactivityDetected += OnInactivityDetected;
@@ -65,26 +62,70 @@ public class TrayApplicationContext : ApplicationContext
         return menu;
     }
 
-    private void OnInactivityDetected(Screen targetScreen)
+    private void OnInactivityDetected(IReadOnlyList<Screen> targetScreens)
     {
-        _overlay.ShowOnScreen(targetScreen);
+        ShowOverlays(targetScreens);
     }
 
-    private void OnActivityDetected()
+    private void OnActivityDetected(int screenIndex)
     {
-        _overlay.HideOverlay();
+        HideOverlayForScreen(screenIndex);
+    }
+
+    /// <summary>
+    /// Maps screen index → overlay window for active overlays.
+    /// </summary>
+    private readonly Dictionary<int, OverlayWindow> _screenOverlayMap = new();
+
+    private void ShowOverlays(IReadOnlyList<Screen> screens)
+    {
+        // Ensure we have enough overlay windows
+        while (_overlays.Count < screens.Count)
+            _overlays.Add(new OverlayWindow());
+
+        _screenOverlayMap.Clear();
+        for (int i = 0; i < screens.Count; i++)
+        {
+            _overlays[i].ShowOnScreen(screens[i]);
+
+            // Find the screen index for this Screen object
+            int idx = Array.IndexOf(Screen.AllScreens, screens[i]);
+            if (idx >= 0)
+                _screenOverlayMap[idx] = _overlays[i];
+        }
+    }
+
+    private void HideOverlayForScreen(int screenIndex)
+    {
+        if (_screenOverlayMap.TryGetValue(screenIndex, out var overlay))
+        {
+            overlay.HideOverlay();
+            _screenOverlayMap.Remove(screenIndex);
+        }
+    }
+
+    private void HideAllOverlays()
+    {
+        foreach (var overlay in _overlays)
+            overlay.HideOverlay();
+        _screenOverlayMap.Clear();
+    }
+
+    private bool AnyOverlayVisible()
+    {
+        return _overlays.Any(o => o.Visible);
     }
 
     private void ToggleOverlay()
     {
-        if (_overlay.Visible)
+        if (AnyOverlayVisible())
         {
-            _overlay.HideOverlay();
+            HideAllOverlays();
         }
         else
         {
-            Screen targetScreen = ScreenManager.GetScreen(_config.TargetScreenIndex);
-            _overlay.ShowOnScreen(targetScreen);
+            List<Screen> targetScreens = ScreenManager.GetScreens(_config.TargetScreenIndices);
+            ShowOverlays(targetScreens);
         }
     }
 
@@ -92,7 +133,7 @@ public class TrayApplicationContext : ApplicationContext
     {
         // Pause monitoring while settings are open
         _monitor.Stop();
-        _overlay.HideOverlay();
+        HideAllOverlays();
 
         using var form = new SettingsForm(_config);
         if (form.ShowDialog() == DialogResult.OK)
@@ -102,7 +143,7 @@ public class TrayApplicationContext : ApplicationContext
             ScreenManager.SetStartWithWindows(_config.StartWithWindows);
 
             // Apply new settings
-            _monitor.TargetScreenIndex = _config.TargetScreenIndex;
+            _monitor.TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices);
             _monitor.InactivityTimeoutSeconds = _config.InactivityTimeoutSeconds;
         }
 
@@ -111,11 +152,14 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
-        // If screens changed, validate the target index
-        if (_config.TargetScreenIndex >= Screen.AllScreens.Length)
+        // Remove any indices that are now out of range or point at the primary screen
+        int screenCount = Screen.AllScreens.Length;
+        int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
+        var validIndices = _config.TargetScreenIndices.Where(i => i < screenCount && i != primaryIdx).ToList();
+        if (validIndices.Count != _config.TargetScreenIndices.Count)
         {
-            _config.TargetScreenIndex = 0;
-            _monitor.TargetScreenIndex = 0;
+            _config.TargetScreenIndices = validIndices.Count > 0 ? validIndices : new List<int> { 0 };
+            _monitor.TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices);
             ConfigManager.Save(_config);
         }
     }
@@ -124,9 +168,13 @@ public class TrayApplicationContext : ApplicationContext
     {
         _monitor.Stop();
         _monitor.Dispose();
-        _overlay.HideOverlay();
-        _overlay.Close();
-        _overlay.Dispose();
+        HideAllOverlays();
+        foreach (var overlay in _overlays)
+        {
+            overlay.Close();
+            overlay.Dispose();
+        }
+        _overlays.Clear();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;

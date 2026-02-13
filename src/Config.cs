@@ -6,15 +6,22 @@ namespace BlackScreenSaver;
 public class AppConfig
 {
     /// <summary>
-    /// Index of the target screen to black out (0-based).
+    /// Indices of the target screens to black out (0-based).
+    /// Multiple screens can be selected.
     /// </summary>
-    public int TargetScreenIndex { get; set; } = 1;
+    public List<int> TargetScreenIndices { get; set; } = new() { 1 };
 
     /// <summary>
-    /// Number of seconds the cursor must be away from the target screen
+    /// Legacy property kept for backward-compatible deserialization.
+    /// If present in JSON it will be migrated into TargetScreenIndices.
+    /// </summary>
+    public int? TargetScreenIndex { get; set; }
+
+    /// <summary>
+    /// Number of seconds the cursor must be away from the target screens
     /// before the overlay appears.
     /// </summary>
-    public int InactivityTimeoutSeconds { get; set; } = 10;
+    public int InactivityTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
     /// Whether the application should start with Windows.
