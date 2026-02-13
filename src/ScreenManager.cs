@@ -128,9 +128,13 @@ public static class ScreenManager
                 key.DeleteValue(valueName, throwOnMissingValue: false);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently fail on registry errors
+            MessageBox.Show(
+                $"Failed to update 'Start with Windows': {ex.Message}",
+                "Black Screen Saver",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
     }
 
