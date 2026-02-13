@@ -79,11 +79,16 @@ public class TrayApplicationContext : ApplicationContext
 
     /// <summary>
     /// Shows an overlay on a single screen by index.
+    /// Skips if a fullscreen app (video, game, slideshow) is detected on the screen.
     /// </summary>
     private void ShowOverlayForScreen(int screenIndex)
     {
         if (_screenOverlayMap.ContainsKey(screenIndex))
             return; // already showing
+
+        // Don't overlay if a fullscreen app is running on this screen
+        if (ScreenManager.IsScreenFullscreenOccupied(screenIndex))
+            return;
 
         Screen? screen = ScreenManager.GetScreen(screenIndex);
         if (screen == null) return;
