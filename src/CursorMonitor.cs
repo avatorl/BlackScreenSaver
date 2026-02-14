@@ -120,6 +120,16 @@ public class CursorMonitor : IDisposable
         }
     }
 
+    /// <summary>
+    /// Externally marks a screen as having an active overlay so the monitor
+    /// will fire <see cref="ActivityDetected"/> when the cursor enters it.
+    /// Used by "Black Out Now" which bypasses the inactivity timeout.
+    /// </summary>
+    public void MarkOverlayActive(int screenIndex)
+    {
+        _activeOverlayScreens.Add(screenIndex);
+    }
+
     public void Dispose()
     {
         _timer.Stop();

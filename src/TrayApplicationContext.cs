@@ -97,6 +97,12 @@ public class TrayApplicationContext : ApplicationContext
         overlay.ShowOnScreen(screen);
         _overlays.Add(overlay);
         _screenOverlayMap[screenIndex] = overlay;
+
+        // Ensure the cursor monitor knows an overlay is active so it will
+        // fire ActivityDetected when the cursor enters this screen.
+        // (Required for the "Black Out Now" path which bypasses the
+        //  inactivity timeout and therefore never sets this flag itself.)
+        _monitor.MarkOverlayActive(screenIndex);
     }
 
     /// <summary>
