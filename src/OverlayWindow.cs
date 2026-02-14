@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace BlackScreenSaver;
 
 /// <summary>
@@ -7,6 +9,17 @@ namespace BlackScreenSaver;
 public class OverlayWindow : Form
 {
     private Screen? _targetScreen;
+
+    private const int SW_SHOWNOACTIVATE = 4;
+    private const int HWND_TOPMOST = -1;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
 
     public OverlayWindow()
     {
@@ -41,10 +54,15 @@ public class OverlayWindow : Form
         Bounds = screen.Bounds;
         if (!Visible)
         {
-            Show();
-            // Re-apply bounds after Show() in case the DPI change
-            // during window creation altered the size.
-            Bounds = screen.Bounds;
+            // Show without stealing focus from the user's active window.
+            ShowWindow(Handle, SW_SHOWNOACTIVATE);
+            Visible = true;
+
+            // Ensure topmost positioning without activation.
+            SetWindowPos(Handle, (IntPtr)HWND_TOPMOST,
+                screen.Bounds.X, screen.Bounds.Y,
+                screen.Bounds.Width, screen.Bounds.Height,
+                SWP_NOACTIVATE);
         }
     }
 
@@ -86,8 +104,9 @@ public class OverlayWindow : Form
         get
         {
             const int WS_EX_TOOLWINDOW = 0x00000080;
+            const int WS_EX_NOACTIVATE = 0x08000000;
             CreateParams cp = base.CreateParams;
-            cp.ExStyle |= WS_EX_TOOLWINDOW;
+            cp.ExStyle |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
             return cp;
         }
     }
