@@ -7,9 +7,15 @@ public class AppConfig
 {
     /// <summary>
     /// Indices of the target screens to black out (0-based).
-    /// Multiple screens can be selected.
+    /// Derived at runtime from <see cref="TargetScreenDeviceNames"/>.
     /// </summary>
     public List<int> TargetScreenIndices { get; set; } = new() { 1 };
+
+    /// <summary>
+    /// Stable device names (e.g. \\.\DISPLAY3) for the target screens.
+    /// This is the persisted source of truth — indices are resolved from these on load.
+    /// </summary>
+    public List<string> TargetScreenDeviceNames { get; set; } = new();
 
     /// <summary>
     /// Legacy property kept for backward-compatible deserialization.
