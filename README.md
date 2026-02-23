@@ -50,6 +50,10 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true 
 3. **Double-click** the tray icon to open Settings
 4. Settings are saved to `%APPDATA%\BlackScreenSaver\config.json`
 
+### Settings
+
+![Settings dialog](Resources/screenshot-settings.png)
+
 ## Project Structure
 
 ```
