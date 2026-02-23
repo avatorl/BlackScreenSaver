@@ -194,9 +194,20 @@ public class SettingsForm : Form
             _timeoutUpDown.Value = 300;
 
         selectedIndices.Sort();
+
+        // Persist stable device names alongside indices
+        Screen[] screens = Screen.AllScreens;
+        var deviceNames = new List<string>();
+        foreach (int idx in selectedIndices)
+        {
+            if (idx >= 0 && idx < screens.Length)
+                deviceNames.Add(screens[idx].DeviceName);
+        }
+
         ResultConfig = new AppConfig
         {
             TargetScreenIndices = selectedIndices,
+            TargetScreenDeviceNames = deviceNames,
             InactivityTimeoutSeconds = (int)_timeoutUpDown.Value,
             StartWithWindows = _startWithWindowsCheckBox.Checked
         };

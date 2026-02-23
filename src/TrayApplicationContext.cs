@@ -183,16 +183,28 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
-        // Remove any indices that are now out of range or point at the primary screen
-        int screenCount = Screen.AllScreens.Length;
+        Screen[] screens = Screen.AllScreens;
         int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
-        var validIndices = _config.TargetScreenIndices.Where(i => i < screenCount && i != primaryIdx).ToList();
-        if (validIndices.Count != _config.TargetScreenIndices.Count)
+        string? primaryDeviceName = primaryIdx >= 0 && primaryIdx < screens.Length
+            ? screens[primaryIdx].DeviceName : null;
+
+        // Re-resolve device names to current indices (screen order may have changed)
+        if (_config.TargetScreenDeviceNames.Count > 0)
         {
-            _config.TargetScreenIndices = validIndices.Count > 0 ? validIndices : new List<int> { 0 };
-            _monitor.TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices);
-            ConfigManager.Save(_config);
+            _config.TargetScreenIndices = ConfigManager.ResolveDeviceNamesToIndices(
+                _config.TargetScreenDeviceNames, screens);
         }
+
+        // Exclude primary screen
+        _config.TargetScreenIndices.Remove(primaryIdx);
+        if (primaryDeviceName != null)
+            _config.TargetScreenDeviceNames.Remove(primaryDeviceName);
+
+        if (_config.TargetScreenIndices.Count == 0)
+            _config.TargetScreenIndices.Add(0);
+
+        _monitor.TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices);
+        ConfigManager.Save(_config);
     }
 
     private void ExitApplication()
