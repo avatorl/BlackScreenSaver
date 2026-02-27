@@ -185,26 +185,29 @@ public class TrayApplicationContext : ApplicationContext
     {
         Screen[] screens = Screen.AllScreens;
         int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
-        string? primaryDeviceName = primaryIdx >= 0 && primaryIdx < screens.Length
-            ? screens[primaryIdx].DeviceName : null;
 
-        // Re-resolve device names to current indices (screen order may have changed)
+        // Re-resolve device names to current indices (screen order may have changed).
+        // Only update in-memory indices — do NOT mutate TargetScreenDeviceNames or save,
+        // because the user's preference (which screens to black out) has not changed.
+        List<int> resolvedIndices;
         if (_config.TargetScreenDeviceNames.Count > 0)
         {
-            _config.TargetScreenIndices = ConfigManager.ResolveDeviceNamesToIndices(
+            resolvedIndices = ConfigManager.ResolveDeviceNamesToIndices(
                 _config.TargetScreenDeviceNames, screens);
         }
+        else
+        {
+            resolvedIndices = new List<int>(_config.TargetScreenIndices);
+        }
 
-        // Exclude primary screen
-        _config.TargetScreenIndices.Remove(primaryIdx);
-        if (primaryDeviceName != null)
-            _config.TargetScreenDeviceNames.Remove(primaryDeviceName);
+        // Exclude primary screen at runtime
+        resolvedIndices.Remove(primaryIdx);
 
-        if (_config.TargetScreenIndices.Count == 0)
-            _config.TargetScreenIndices.Add(0);
+        if (resolvedIndices.Count == 0)
+            resolvedIndices.Add(primaryIdx);
 
-        _monitor.TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices);
-        ConfigManager.Save(_config);
+        _config.TargetScreenIndices = resolvedIndices;
+        _monitor.TargetScreenIndices = new HashSet<int>(resolvedIndices);
     }
 
     private void ExitApplication()
