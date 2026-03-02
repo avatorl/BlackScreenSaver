@@ -12,6 +12,40 @@ public class TrayApplicationContext : ApplicationContext
     private readonly List<OverlayWindow> _overlays = new();
     private readonly CursorMonitor _monitor;
     private AppConfig _config;
+    private HotkeyMessageWindow? _hotkeyWindow;
+
+    private const int WmHotkey = 0x0312;
+    private const int HotkeyIdDarkMode = 1;
+    private const uint ModAlt = 0x0001;
+    private const uint ModControl = 0x0002;
+    private const uint ModWin = 0x0008;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    /// <summary>
+    /// Minimal NativeWindow that forwards WM_HOTKEY to an action.
+    /// </summary>
+    private sealed class HotkeyMessageWindow : NativeWindow
+    {
+        public Action? HotkeyPressed;
+
+        public HotkeyMessageWindow()
+        {
+            CreateHandle(new System.Windows.Forms.CreateParams());
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WmHotkey)
+                HotkeyPressed?.Invoke();
+            else
+                base.WndProc(ref m);
+        }
+    }
 
     public TrayApplicationContext()
     {
@@ -41,6 +75,9 @@ public class TrayApplicationContext : ApplicationContext
 
         // Start monitoring
         _monitor.Start();
+
+        // Register Ctrl+Alt+D hotkey if enabled
+        RegisterDarkModeHotkey();
     }
 
     private ContextMenuStrip BuildContextMenu()
@@ -176,6 +213,9 @@ public class TrayApplicationContext : ApplicationContext
             // Apply new settings
             _monitor.TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices);
             _monitor.InactivityTimeoutSeconds = _config.InactivityTimeoutSeconds;
+
+            // Re-apply hotkey registration (may have been toggled)
+            RegisterDarkModeHotkey();
         }
 
         _monitor.Start();
@@ -210,8 +250,42 @@ public class TrayApplicationContext : ApplicationContext
         _monitor.TargetScreenIndices = new HashSet<int>(resolvedIndices);
     }
 
+    private void RegisterDarkModeHotkey()
+    {
+        // Always unregister first to avoid duplicate registration
+        if (_hotkeyWindow != null)
+        {
+            UnregisterHotKey(_hotkeyWindow.Handle, HotkeyIdDarkMode);
+            _hotkeyWindow.DestroyHandle();
+            _hotkeyWindow = null;
+        }
+
+        if (_config.EnableDarkModeToggle)
+        {
+            _hotkeyWindow = new HotkeyMessageWindow { HotkeyPressed = ToggleWindowsAppMode };
+            RegisterHotKey(_hotkeyWindow.Handle, HotkeyIdDarkMode, ModControl | ModAlt | ModWin, (uint)Keys.D);
+        }
+    }
+
+    private static void ToggleWindowsAppMode()
+    {
+        const string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+        using var key = Registry.CurrentUser.OpenSubKey(keyPath, writable: true);
+        if (key == null) return;
+        int current = (int)(key.GetValue("AppsUseLightTheme") ?? 1);
+        key.SetValue("AppsUseLightTheme", current == 0 ? 1 : 0, RegistryValueKind.DWord);
+    }
+
     private void ExitApplication()
     {
+        // Unregister hotkey before exit
+        if (_hotkeyWindow != null)
+        {
+            UnregisterHotKey(_hotkeyWindow.Handle, HotkeyIdDarkMode);
+            _hotkeyWindow.DestroyHandle();
+            _hotkeyWindow = null;
+        }
+
         _monitor.Stop();
         _monitor.Dispose();
         HideAllOverlays();
