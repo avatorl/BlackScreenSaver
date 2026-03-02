@@ -33,9 +33,4 @@ public class AppConfig
     /// Whether the application should start with Windows.
     /// </summary>
     public bool StartWithWindows { get; set; } = false;
-
-    /// <summary>
-    /// Whether Ctrl+Alt+D should toggle Windows app mode between light and dark.
-    /// </summary>
-    public bool EnableDarkModeToggle { get; set; } = false;
 }

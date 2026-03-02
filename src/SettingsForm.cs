@@ -9,7 +9,6 @@ public class SettingsForm : Form
     private readonly ScreenLayoutPanel _screenPanel;
     private readonly NumericUpDown _timeoutUpDown;
     private readonly CheckBox _startWithWindowsCheckBox;
-    private readonly CheckBox _darkModeToggleCheckBox;
     private readonly Button _saveButton;
     private readonly Button _cancelButton;
     private readonly Label _screenLabel;
@@ -96,18 +95,8 @@ public class SettingsForm : Form
             Checked = currentConfig.StartWithWindows
         };
 
-        // --- Dark mode toggle ---
-        int row3 = row2 + 30;
-        _darkModeToggleCheckBox = new CheckBox
-        {
-            Text = "Enable Ctrl+Alt+Win+D dark/light mode toggle",
-            Location = new Point(140, row3),
-            AutoSize = true,
-            Checked = currentConfig.EnableDarkModeToggle
-        };
-
         // --- Buttons ---
-        int buttonRow = row3 + 38;
+        int buttonRow = row2 + 40;
         _saveButton = new Button
         {
             Text = "Save",
@@ -136,7 +125,6 @@ public class SettingsForm : Form
             _screenLabel, _screenPanel,
             _timeoutLabel, _timeoutUpDown, _secondsLabel,
             _startWithWindowsCheckBox,
-            _darkModeToggleCheckBox,
             _saveButton, _cancelButton
         });
     }
@@ -221,8 +209,7 @@ public class SettingsForm : Form
             TargetScreenIndices = selectedIndices,
             TargetScreenDeviceNames = deviceNames,
             InactivityTimeoutSeconds = (int)_timeoutUpDown.Value,
-            StartWithWindows = _startWithWindowsCheckBox.Checked,
-            EnableDarkModeToggle = _darkModeToggleCheckBox.Checked
+            StartWithWindows = _startWithWindowsCheckBox.Checked
         };
     }
 }
