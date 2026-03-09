@@ -65,18 +65,227 @@ public static class ScreenManager
         public int Right;
         public int Bottom;
     }
+
+    // --- CCD (Connecting and Configuring Displays) P/Invoke ---
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LUID { public uint LowPart; public int HighPart; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DISPLAYCONFIG_RATIONAL { public uint Numerator; public uint Denominator; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DISPLAYCONFIG_PATH_SOURCE_INFO
+    {
+        public LUID adapterId;
+        public uint id;
+        public uint modeInfoIdx;
+        public uint statusFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DISPLAYCONFIG_PATH_TARGET_INFO
+    {
+        public LUID adapterId;
+        public uint id;
+        public uint modeInfoIdx;
+        public uint outputTechnology;
+        public uint rotation;
+        public uint scaling;
+        public DISPLAYCONFIG_RATIONAL refreshRate;
+        public uint scanLineOrdering;
+        public int targetAvailable;
+        public uint statusFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DISPLAYCONFIG_PATH_INFO
+    {
+        public DISPLAYCONFIG_PATH_SOURCE_INFO sourceInfo;
+        public DISPLAYCONFIG_PATH_TARGET_INFO targetInfo;
+        public uint flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DISPLAYCONFIG_MODE_INFO
+    {
+        public uint infoType;
+        public uint id;
+        public LUID adapterId;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
+        public byte[] data;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DISPLAYCONFIG_DEVICE_INFO_HEADER
+    {
+        public uint type;
+        public uint size;
+        public LUID adapterId;
+        public uint id;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+    {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string viewGdiDeviceName;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+    {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        public uint flags;
+        public uint outputTechnology;
+        public ushort edidManufactureId;
+        public ushort edidProductCodeId;
+        public uint connectorInstance;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string monitorFriendlyDeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string monitorDevicePath;
+    }
+
+    private const uint QDC_ONLY_ACTIVE_PATHS = 2;
+    private const uint DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1;
+    private const uint DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME = 2;
+
+    [DllImport("user32.dll")]
+    private static extern int GetDisplayConfigBufferSizes(
+        uint flags, out uint numPathArrayElements, out uint numModeInfoArrayElements);
+
+    [DllImport("user32.dll")]
+    private static extern int QueryDisplayConfig(
+        uint flags,
+        ref uint numPathArrayElements,
+        [Out] DISPLAYCONFIG_PATH_INFO[] pathArray,
+        ref uint numModeInfoArrayElements,
+        [Out] DISPLAYCONFIG_MODE_INFO[] modeInfoArray,
+        IntPtr currentTopologyId);
+
+    [DllImport("user32.dll")]
+    private static extern int DisplayConfigGetDeviceInfo(
+        ref DISPLAYCONFIG_SOURCE_DEVICE_NAME requestPacket);
+
+    [DllImport("user32.dll")]
+    private static extern int DisplayConfigGetDeviceInfo(
+        ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
+
     /// <summary>
-    /// Extracts the Windows display number from Screen.DeviceName (e.g. "\\.\DISPLAY3" → 3).
-    /// Falls back to array index + 1 if parsing fails.
+    /// Returns true if the output technology represents an internal/embedded display
+    /// (laptop panel, tablet screen, etc.).
+    /// </summary>
+    private static bool IsInternalOutputTechnology(uint outputTechnology)
+    {
+        return outputTechnology switch
+        {
+            6 => true,            // LVDS
+            11 => true,           // DisplayPort Embedded (eDP)
+            13 => true,           // UDI Embedded
+            0x80000000 => true,   // Internal (generic)
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Builds a map from GDI device name (e.g. \\.\DISPLAY1) to the Windows Display Settings
+    /// number, using the CCD QueryDisplayConfig API. Returns null if the query fails.
+    ///
+    /// Windows numbers internal (laptop) displays first, then external displays,
+    /// each group sorted by connector instance.
+    /// </summary>
+    private static Dictionary<string, int>? BuildDisplaySettingsNumberMap()
+    {
+        try
+        {
+            int rc = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out uint numPaths, out uint numModes);
+            if (rc != 0) return null;
+
+            var paths = new DISPLAYCONFIG_PATH_INFO[numPaths];
+            var modes = new DISPLAYCONFIG_MODE_INFO[numModes];
+            rc = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref numPaths, paths, ref numModes, modes, IntPtr.Zero);
+            if (rc != 0) return null;
+
+            var entries = new List<(string gdiName, bool isInternal, uint connectorInstance)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (uint i = 0; i < numPaths; i++)
+            {
+                var path = paths[i];
+
+                var srcName = new DISPLAYCONFIG_SOURCE_DEVICE_NAME();
+                srcName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+                srcName.header.size = (uint)Marshal.SizeOf<DISPLAYCONFIG_SOURCE_DEVICE_NAME>();
+                srcName.header.adapterId = path.sourceInfo.adapterId;
+                srcName.header.id = path.sourceInfo.id;
+                if (DisplayConfigGetDeviceInfo(ref srcName) != 0) continue;
+
+                string gdiName = srcName.viewGdiDeviceName?.Trim().TrimEnd('\0') ?? "";
+                if (string.IsNullOrEmpty(gdiName) || !seen.Add(gdiName)) continue;
+
+                var tgtName = new DISPLAYCONFIG_TARGET_DEVICE_NAME();
+                tgtName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+                tgtName.header.size = (uint)Marshal.SizeOf<DISPLAYCONFIG_TARGET_DEVICE_NAME>();
+                tgtName.header.adapterId = path.targetInfo.adapterId;
+                tgtName.header.id = path.targetInfo.id;
+                DisplayConfigGetDeviceInfo(ref tgtName);
+
+                entries.Add((gdiName, IsInternalOutputTechnology(path.targetInfo.outputTechnology), tgtName.connectorInstance));
+            }
+
+            // Sort: internal first, then external; within each group by connector instance
+            entries.Sort((a, b) =>
+            {
+                int cmp = b.isInternal.CompareTo(a.isInternal); // true (internal) before false
+                if (cmp != 0) return cmp;
+                return a.connectorInstance.CompareTo(b.connectorInstance);
+            });
+
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < entries.Count; i++)
+                map[entries[i].gdiName] = i + 1;
+
+            return map;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Dictionary<string, int>? _displayNumberCache;
+
+    /// <summary>
+    /// Invalidates the cached display-number map so it is rebuilt on the next call.
+    /// Should be called when display settings change.
+    /// </summary>
+    public static void InvalidateDisplayNumberCache()
+    {
+        _displayNumberCache = null;
+    }
+
+    /// <summary>
+    /// Returns the Windows Display Settings number for a screen.
+    /// This matches the "Identify" numbering in System &gt; Display.
+    /// Falls back to the DISPLAY suffix number if CCD query fails.
     /// </summary>
     public static int GetWindowsDisplayNumber(Screen screen, int fallbackIndex)
     {
+        _displayNumberCache ??= BuildDisplaySettingsNumberMap();
+
+        if (_displayNumberCache != null &&
+            _displayNumberCache.TryGetValue(screen.DeviceName, out int number))
+            return number;
+
+        // Fallback: extract trailing digits from DeviceName
         string name = screen.DeviceName;
         int i = name.Length - 1;
         while (i >= 0 && char.IsDigit(name[i]))
             i--;
-        if (i < name.Length - 1 && int.TryParse(name.AsSpan(i + 1), out int number))
-            return number;
+        if (i < name.Length - 1 && int.TryParse(name.AsSpan(i + 1), out int parsed))
+            return parsed;
         return fallbackIndex + 1;
     }
 

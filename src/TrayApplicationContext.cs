@@ -183,6 +183,8 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
+        ScreenManager.InvalidateDisplayNumberCache();
+
         List<CurrentScreenIdentity> currentScreens = ScreenManager.GetCurrentScreenIdentities();
         Screen[] screens = currentScreens.Select(screen => screen.Screen).ToArray();
         int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
