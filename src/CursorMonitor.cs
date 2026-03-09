@@ -42,6 +42,14 @@ public class CursorMonitor : IDisposable
     /// </summary>
     public event Action<int>? ActivityDetected;
 
+    /// <summary>
+    /// Optional callback that returns the 0-based screen index of the
+    /// current foreground window, or -1 if not determinable.
+    /// When set, a screen is considered active if the cursor OR the
+    /// foreground window is on it.
+    /// </summary>
+    public Func<int>? GetFocusedScreenIndex { get; set; }
+
     public CursorMonitor()
     {
         _timer = new System.Windows.Forms.Timer
@@ -78,6 +86,7 @@ public class CursorMonitor : IDisposable
     private void OnTimerTick(object? sender, EventArgs e)
     {
         int currentScreenIndex = ScreenManager.GetCurrentCursorScreenIndex();
+        int focusedScreenIndex = GetFocusedScreenIndex?.Invoke() ?? -1;
         DateTime now = DateTime.UtcNow;
 
         // During transient display reconfiguration, cursor position may not map
@@ -87,11 +96,11 @@ public class CursorMonitor : IDisposable
 
         foreach (int idx in TargetScreenIndices)
         {
-            bool cursorIsHere = (idx == currentScreenIndex);
+            bool screenIsActive = (idx == currentScreenIndex) || (idx == focusedScreenIndex);
 
-            if (cursorIsHere)
+            if (screenIsActive)
             {
-                // Cursor is on this target screen — reset its timer
+                // Cursor or foreground window is on this target screen — reset its timer
                 _lastSeenOnScreen[idx] = now;
 
                 if (_activeOverlayScreens.Contains(idx))
@@ -103,7 +112,7 @@ public class CursorMonitor : IDisposable
             }
             else
             {
-                // Cursor is NOT on this target screen
+                // Neither cursor nor foreground window is on this target screen
                 if (!_activeOverlayScreens.Contains(idx))
                 {
                     if (!_lastSeenOnScreen.ContainsKey(idx))
