@@ -123,9 +123,11 @@ public class ScreenLayoutPanel : Panel
             using var pen = new Pen(border, selected ? 2f : 1f);
             g.DrawRectangle(pen, rect.X, rect.Y, rect.Width, rect.Height);
 
-            // Labels
-            string label = (screenIdx + 1).ToString();
-            string sub = screens[screenIdx].Primary ? "Primary" : "";
+            // Labels — use Windows display number so they match System > Display
+            int displayNum = ScreenManager.GetWindowsDisplayNumber(screens[screenIdx], screenIdx);
+            string label = displayNum.ToString();
+            bool isPrimary = screens[screenIdx].Primary;
+            string sub = isPrimary ? "Primary" : "";
             string res = $"{screens[screenIdx].Bounds.Width}×{screens[screenIdx].Bounds.Height}";
 
             using var labelFont = new Font("Segoe UI", Math.Max(rect.Height * 0.22f, 10f), FontStyle.Bold);
@@ -144,7 +146,8 @@ public class ScreenLayoutPanel : Panel
             g.DrawString(label, labelFont, labelBrush, labelRect, sf);
 
             // Sub-label (Primary / resolution) — below middle
-            if (locked) sub = "Primary (locked)";
+            if (locked && isPrimary) sub = "Primary (locked)";
+            else if (locked) sub = "(locked)";
             string info = string.IsNullOrEmpty(sub) ? res : $"{sub}\n{res}";
             var subRect = new RectangleF(rect.X, rect.Y + rect.Height * 0.50f, rect.Width, rect.Height * 0.45f);
             g.DrawString(info, subFont, subBrush, subRect, sf);

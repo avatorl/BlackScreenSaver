@@ -66,7 +66,23 @@ public static class ScreenManager
         public int Bottom;
     }
     /// <summary>
+    /// Extracts the Windows display number from Screen.DeviceName (e.g. "\\.\DISPLAY3" → 3).
+    /// Falls back to array index + 1 if parsing fails.
+    /// </summary>
+    public static int GetWindowsDisplayNumber(Screen screen, int fallbackIndex)
+    {
+        string name = screen.DeviceName;
+        int i = name.Length - 1;
+        while (i >= 0 && char.IsDigit(name[i]))
+            i--;
+        if (i < name.Length - 1 && int.TryParse(name.AsSpan(i + 1), out int number))
+            return number;
+        return fallbackIndex + 1;
+    }
+
+    /// <summary>
     /// Returns a user-friendly name for each screen, e.g. "Screen 1 (Primary) – 1920×1080".
+    /// The number matches the Windows Display Settings numbering.
     /// </summary>
     public static string GetScreenDisplayName(int index)
     {
@@ -75,8 +91,9 @@ public static class ScreenManager
             return $"Screen {index + 1} (unavailable)";
 
         Screen s = screens[index];
+        int displayNum = GetWindowsDisplayNumber(s, index);
         string primary = s.Primary ? " (Primary)" : "";
-        return $"Screen {index + 1}{primary} – {s.Bounds.Width}×{s.Bounds.Height}";
+        return $"Screen {displayNum}{primary} – {s.Bounds.Width}×{s.Bounds.Height}";
     }
 
     /// <summary>
