@@ -196,18 +196,17 @@ public class SettingsForm : Form
         selectedIndices.Sort();
 
         // Persist stable device names alongside indices
-        Screen[] screens = Screen.AllScreens;
-        var deviceNames = new List<string>();
-        foreach (int idx in selectedIndices)
-        {
-            if (idx >= 0 && idx < screens.Length)
-                deviceNames.Add(screens[idx].DeviceName);
-        }
+        List<PersistedScreenSelection> targetScreens = ScreenManager.CreatePersistedSelections(selectedIndices);
+        List<string> deviceNames = targetScreens
+            .Select(screen => screen.DeviceName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList();
 
         ResultConfig = new AppConfig
         {
             TargetScreenIndices = selectedIndices,
             TargetScreenDeviceNames = deviceNames,
+            TargetScreens = targetScreens,
             InactivityTimeoutSeconds = (int)_timeoutUpDown.Value,
             StartWithWindows = _startWithWindowsCheckBox.Checked
         };

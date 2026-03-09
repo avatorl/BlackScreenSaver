@@ -4,15 +4,58 @@ using System.Runtime.InteropServices;
 namespace BlackScreenSaver;
 
 /// <summary>
+/// Runtime description of a currently attached screen and its hardware-backed monitor identity.
+/// </summary>
+public sealed class CurrentScreenIdentity
+{
+    public int Index { get; init; }
+    public Screen Screen { get; init; } = null!;
+    public string DeviceName { get; init; } = string.Empty;
+    public string MonitorInterfaceName { get; init; } = string.Empty;
+    public ScreenBoundsSnapshot Bounds { get; init; } = new();
+    public bool IsPrimary { get; init; }
+}
+
+/// <summary>
 /// Provides helper methods for enumerating and describing screens.
 /// </summary>
 public static class ScreenManager
 {
+    private const int EddGetDeviceInterfaceName = 0x00000001;
+    private const int DisplayDeviceAttachedToDesktop = 0x00000001;
+
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool EnumDisplayDevices(
+        string? lpDevice,
+        uint iDevNum,
+        ref DISPLAY_DEVICE lpDisplayDevice,
+        uint dwFlags);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAY_DEVICE
+    {
+        public int cb;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceString;
+
+        public int StateFlags;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceID;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceKey;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT
@@ -50,6 +93,93 @@ public static class ScreenManager
 
     /// <summary>
     /// Safely returns the screen at the given index, or the first screen if out of range.
+
+    /// <summary>
+    /// Returns runtime screen identities for all attached screens.
+    /// </summary>
+    public static List<CurrentScreenIdentity> GetCurrentScreenIdentities()
+    {
+        Screen[] screens = Screen.AllScreens;
+        var result = new List<CurrentScreenIdentity>(screens.Length);
+
+        for (int i = 0; i < screens.Length; i++)
+        {
+            Screen screen = screens[i];
+            result.Add(new CurrentScreenIdentity
+            {
+                Index = i,
+                Screen = screen,
+                DeviceName = screen.DeviceName,
+                MonitorInterfaceName = GetMonitorInterfaceName(screen.DeviceName),
+                Bounds = ScreenBoundsSnapshot.FromRectangle(screen.Bounds),
+                IsPrimary = screen.Primary
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Creates persisted screen selections for the supplied indices.
+    /// </summary>
+    public static List<PersistedScreenSelection> CreatePersistedSelections(IEnumerable<int> indices)
+    {
+        var identities = GetCurrentScreenIdentities();
+        var selections = new List<PersistedScreenSelection>();
+
+        foreach (int index in indices)
+        {
+            CurrentScreenIdentity? identity = identities.FirstOrDefault(s => s.Index == index);
+            if (identity == null)
+                continue;
+
+            selections.Add(new PersistedScreenSelection
+            {
+                MonitorInterfaceName = identity.MonitorInterfaceName,
+                DeviceName = identity.DeviceName,
+                Bounds = identity.Bounds
+            });
+        }
+
+        return selections;
+    }
+
+    private static string GetMonitorInterfaceName(string deviceName)
+    {
+        for (uint monitorIndex = 0; ; monitorIndex++)
+        {
+            var monitorDevice = CreateDisplayDevice();
+            if (!EnumDisplayDevices(deviceName, monitorIndex, ref monitorDevice, EddGetDeviceInterfaceName))
+                break;
+
+            bool attachedToDesktop = (monitorDevice.StateFlags & DisplayDeviceAttachedToDesktop) != 0;
+            string interfaceName = NormalizeMonitorInterfaceName(monitorDevice.DeviceID);
+            if (!string.IsNullOrEmpty(interfaceName) && attachedToDesktop)
+                return interfaceName;
+
+            if (!string.IsNullOrEmpty(interfaceName))
+                return interfaceName;
+        }
+
+        return string.Empty;
+    }
+
+    private static DISPLAY_DEVICE CreateDisplayDevice()
+    {
+        return new DISPLAY_DEVICE
+        {
+            cb = Marshal.SizeOf<DISPLAY_DEVICE>(),
+            DeviceName = string.Empty,
+            DeviceString = string.Empty,
+            DeviceID = string.Empty,
+            DeviceKey = string.Empty
+        };
+    }
+
+    private static string NormalizeMonitorInterfaceName(string value)
+    {
+        return value.Trim().TrimEnd('\0').ToUpperInvariant();
+    }
     /// </summary>
     public static Screen GetScreen(int index)
     {

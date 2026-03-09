@@ -10,6 +10,7 @@ Not a regular Windows screensaver — this is a custom tray app designed for mul
 
 - **System tray** — runs silently in the notification area
 - **Multi-monitor aware** — detects all connected screens and lets you pick which one to black out
+- **Stable monitor selection** — keeps the same monitor selected across reboot or Windows display renumbering when Windows exposes a stable monitor identity
 - **Configurable timeout** — set how many seconds (1–300) before the screen goes black
 - **Instant on/off** — overlay appears/disappears with no fade or animation
 - **Manual toggle** — right-click tray icon → "Black Out Now" to toggle immediately
@@ -56,7 +57,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true 
 
 ## Project Structure
 
-```
+```text
 blackscreensaver/
 ├── BlackScreenSaver.csproj
 ├── Resources/

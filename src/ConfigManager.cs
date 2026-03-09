@@ -42,19 +42,28 @@ public static class ConfigManager
 
                 config.TargetScreenIndices ??= new List<int> { 1 };
                 config.TargetScreenDeviceNames ??= new List<string>();
+                config.TargetScreens ??= new List<PersistedScreenSelection>();
 
                 bool needsSave = false;
-                Screen[] screens = Screen.AllScreens;
+                List<CurrentScreenIdentity> currentScreens = ScreenManager.GetCurrentScreenIdentities();
+                Screen[] screens = currentScreens.Select(s => s.Screen).ToArray();
 
-                if (config.TargetScreenDeviceNames.Count > 0)
+                if (config.TargetScreens.Count > 0)
                 {
-                    // Resolve device names to current indices (stable across reboots)
+                    config.TargetScreenIndices = ResolveTargetScreensToIndices(config.TargetScreens, currentScreens);
+                }
+                else if (config.TargetScreenDeviceNames.Count > 0)
+                {
+                    // Migrate legacy device-name configs to the richer persisted model.
                     config.TargetScreenIndices = ResolveDeviceNamesToIndices(config.TargetScreenDeviceNames, screens);
+                    config.TargetScreens = BuildSelectionsFromDeviceNames(config.TargetScreenDeviceNames, currentScreens);
+                    needsSave = config.TargetScreens.Count > 0;
                 }
                 else if (config.TargetScreenIndices.Count > 0)
                 {
                     // Legacy config without device names — migrate
                     config.TargetScreenDeviceNames = ResolveIndicesToDeviceNames(config.TargetScreenIndices, screens);
+                    config.TargetScreens = ScreenManager.CreatePersistedSelections(config.TargetScreenIndices);
                     needsSave = true;
                 }
 
@@ -62,10 +71,16 @@ public static class ConfigManager
                 int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
                 string? primaryDeviceName = primaryIdx >= 0 && primaryIdx < screens.Length
                     ? screens[primaryIdx].DeviceName : null;
+                string? primaryMonitorInterfaceName = primaryIdx >= 0 && primaryIdx < currentScreens.Count
+                    ? currentScreens[primaryIdx].MonitorInterfaceName : null;
 
                 config.TargetScreenIndices.Remove(primaryIdx);
                 if (primaryDeviceName != null)
                     config.TargetScreenDeviceNames.Remove(primaryDeviceName);
+                config.TargetScreens.RemoveAll(selection =>
+                    string.Equals(selection.DeviceName, primaryDeviceName, StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrWhiteSpace(primaryMonitorInterfaceName)
+                        && string.Equals(selection.MonitorInterfaceName, primaryMonitorInterfaceName, StringComparison.OrdinalIgnoreCase)));
 
                 // If this leaves no target screens (for example, single-monitor setups),
                 // fall back to the primary screen so the app remains functional.
@@ -110,6 +125,49 @@ public static class ConfigManager
     }
 
     /// <summary>
+    /// Resolves persisted screen selections to the currently attached screen indices.
+    /// Matching order is: stable monitor interface name, legacy device name, then bounds fallback.
+    /// </summary>
+    public static List<int> ResolveTargetScreensToIndices(
+        IReadOnlyList<PersistedScreenSelection> targetScreens,
+        IReadOnlyList<CurrentScreenIdentity> currentScreens)
+    {
+        var resolvedIndices = new List<int>();
+        var usedIndices = new HashSet<int>();
+
+        foreach (PersistedScreenSelection target in targetScreens)
+        {
+            int index = FindUnmatchedScreenIndex(
+                currentScreens,
+                usedIndices,
+                screen => !string.IsNullOrWhiteSpace(target.MonitorInterfaceName)
+                    && string.Equals(screen.MonitorInterfaceName, target.MonitorInterfaceName, StringComparison.OrdinalIgnoreCase));
+
+            if (index < 0)
+            {
+                index = FindUnmatchedScreenIndex(
+                    currentScreens,
+                    usedIndices,
+                    screen => !string.IsNullOrWhiteSpace(target.DeviceName)
+                        && string.Equals(screen.DeviceName, target.DeviceName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (index < 0)
+            {
+                index = FindBestBoundsMatch(target.Bounds, currentScreens, usedIndices);
+            }
+
+            if (index >= 0)
+            {
+                resolvedIndices.Add(index);
+                usedIndices.Add(index);
+            }
+        }
+
+        return resolvedIndices;
+    }
+
+    /// <summary>
     /// Resolves a list of screen indices to their device names.
     /// Out-of-range indices are silently skipped.
     /// </summary>
@@ -122,6 +180,95 @@ public static class ConfigManager
                 names.Add(screens[idx].DeviceName);
         }
         return names;
+    }
+
+    private static List<PersistedScreenSelection> BuildSelectionsFromDeviceNames(
+        IReadOnlyList<string> deviceNames,
+        IReadOnlyList<CurrentScreenIdentity> currentScreens)
+    {
+        var selections = new List<PersistedScreenSelection>();
+
+        foreach (string deviceName in deviceNames)
+        {
+            CurrentScreenIdentity? match = currentScreens.FirstOrDefault(screen =>
+                string.Equals(screen.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
+
+            if (match != null)
+            {
+                selections.Add(new PersistedScreenSelection
+                {
+                    MonitorInterfaceName = match.MonitorInterfaceName,
+                    DeviceName = match.DeviceName,
+                    Bounds = match.Bounds
+                });
+                continue;
+            }
+
+            selections.Add(new PersistedScreenSelection
+            {
+                DeviceName = deviceName,
+                Bounds = new ScreenBoundsSnapshot()
+            });
+        }
+
+        return selections;
+    }
+
+    private static int FindUnmatchedScreenIndex(
+        IReadOnlyList<CurrentScreenIdentity> currentScreens,
+        ISet<int> usedIndices,
+        Func<CurrentScreenIdentity, bool> predicate)
+    {
+        foreach (CurrentScreenIdentity screen in currentScreens)
+        {
+            if (usedIndices.Contains(screen.Index))
+                continue;
+
+            if (predicate(screen))
+                return screen.Index;
+        }
+
+        return -1;
+    }
+
+    private static int FindBestBoundsMatch(
+        ScreenBoundsSnapshot? targetBounds,
+        IReadOnlyList<CurrentScreenIdentity> currentScreens,
+        ISet<int> usedIndices)
+    {
+        if (targetBounds == null)
+            return -1;
+
+        int bestIndex = -1;
+        long bestScore = long.MaxValue;
+
+        foreach (CurrentScreenIdentity screen in currentScreens)
+        {
+            if (usedIndices.Contains(screen.Index))
+                continue;
+
+            long score = GetBoundsScore(targetBounds, screen.Bounds);
+            if (score < bestScore)
+            {
+                bestScore = score;
+                bestIndex = screen.Index;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private static long GetBoundsScore(ScreenBoundsSnapshot left, ScreenBoundsSnapshot right)
+    {
+        long leftCenterX = left.Left + (left.Width / 2L);
+        long leftCenterY = left.Top + (left.Height / 2L);
+        long rightCenterX = right.Left + (right.Width / 2L);
+        long rightCenterY = right.Top + (right.Height / 2L);
+
+        long positionDelta = Math.Abs(leftCenterX - rightCenterX) + Math.Abs(leftCenterY - rightCenterY);
+        long sizeDelta = Math.Abs(left.Width - right.Width) + Math.Abs(left.Height - right.Height);
+
+        return (positionDelta * 10) + sizeDelta;
     }
 
     /// <summary>

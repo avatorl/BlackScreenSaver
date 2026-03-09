@@ -183,14 +183,18 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
-        Screen[] screens = Screen.AllScreens;
+        List<CurrentScreenIdentity> currentScreens = ScreenManager.GetCurrentScreenIdentities();
+        Screen[] screens = currentScreens.Select(screen => screen.Screen).ToArray();
         int primaryIdx = ScreenManager.GetPrimaryScreenIndex();
 
-        // Re-resolve device names to current indices (screen order may have changed).
-        // Only update in-memory indices — do NOT mutate TargetScreenDeviceNames or save,
-        // because the user's preference (which screens to black out) has not changed.
+        // Re-resolve persisted monitor selections to current indices.
+        // Only update in-memory indices — do NOT save here, because the user's preference has not changed.
         List<int> resolvedIndices;
-        if (_config.TargetScreenDeviceNames.Count > 0)
+        if (_config.TargetScreens.Count > 0)
+        {
+            resolvedIndices = ConfigManager.ResolveTargetScreensToIndices(_config.TargetScreens, currentScreens);
+        }
+        else if (_config.TargetScreenDeviceNames.Count > 0)
         {
             resolvedIndices = ConfigManager.ResolveDeviceNamesToIndices(
                 _config.TargetScreenDeviceNames, screens);
