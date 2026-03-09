@@ -23,6 +23,7 @@ public class TrayApplicationContext : ApplicationContext
             TargetScreenIndices = new HashSet<int>(_config.TargetScreenIndices),
             InactivityTimeoutSeconds = _config.InactivityTimeoutSeconds
         };
+        _monitor.GetFocusedScreenIndex = ScreenManager.GetForegroundWindowScreenIndex;
         _monitor.ScreenInactivityDetected += OnScreenInactivityDetected;
         _monitor.ActivityDetected += OnActivityDetected;
 

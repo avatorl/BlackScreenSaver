@@ -30,6 +30,12 @@ public static class ScreenManager
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDesktopWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool EnumDisplayDevices(
         string? lpDevice,
@@ -534,5 +540,45 @@ public static class ScreenManager
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns the 0-based screen index that contains the center of the current
+    /// foreground window, or -1 if there is no meaningful foreground window
+    /// (e.g. desktop, shell, or no window).
+    /// </summary>
+    public static int GetForegroundWindowScreenIndex()
+    {
+        try
+        {
+            IntPtr fgWindow = GetForegroundWindow();
+            if (fgWindow == IntPtr.Zero)
+                return -1;
+
+            // Ignore desktop / shell windows — they don't represent real app focus.
+            if (fgWindow == GetDesktopWindow() || fgWindow == GetShellWindow())
+                return -1;
+
+            if (!GetWindowRect(fgWindow, out RECT rect))
+                return -1;
+
+            // Use the center of the window to decide which screen it belongs to.
+            int cx = (rect.Left + rect.Right) / 2;
+            int cy = (rect.Top + rect.Bottom) / 2;
+            Point center = new(cx, cy);
+
+            Screen[] screens = Screen.AllScreens;
+            for (int i = 0; i < screens.Length; i++)
+            {
+                if (screens[i].Bounds.Contains(center))
+                    return i;
+            }
+        }
+        catch
+        {
+            // Silently fail — treat as "no focused screen".
+        }
+
+        return -1;
     }
 }
